@@ -1,0 +1,107 @@
+langkah-langkah pembuatan resource di azure portal
+1. buat virtual machine dengan spesifikasi sebagai berikut
+* name : NAMA VM
+* image : Linux (ubuntu 21.04)
+* vm size : Standard B1s
+
+langkah - langkah pembuatan web learning moodle
+1. Masuk ke mode root
+sudo passwd root
+masukkan password root
+masuk ke mode root dengan perintah 'su'
+2. Install NGINX
+apt update
+apt upgrade -y
+apt install nginx -y
+3. Install MARIADB
+apt install mariadb-server -y
+mysql_secure_installation
+* jawab pertanyaanya
+Enter current password for root (enter for none): ENTER
+Set root password? [Y/n] y
+Remove anonymous users? [Y/n] y
+Disallow root login remotely? [Y/n] y
+Remove test database and access to it? [Y/n] y
+Reload privilege tables now? [Y/n] y
+
+nano /etc/mysql/mariadb.conf.d/50-server.cnf 	
+* Tambahkan konfigurasi di bawah [mysqld]
+default_storage_engine = innodb
+innodb_file_per_table = 1
+innodb_file_format = Barracuda
+innodb_large_prefix = 1	
+
+* restart mariadb
+systemctl restart mariadb; systemctl status mariadb
+
+*Login ke MariaDB
+mysql -u root -p
+CREATE DATABASE moodle DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;    
+CREATE USER 'usrmoodle'@'localhost' IDENTIFIED BY 'secret';
+GRANT ALL PRIVILEGES ON moodle.* TO 'usrmoodle'@'localhost';
+FLUSH PRIVILEGES;
+exit
+4. Install PHP-FPM
+apt install php-fpm php-common php-pspell php-curl php-gd php-intl php-mysql php-xml php-xmlrpc php-ldap php-zip php-soap php-mbstring -y
+
+* konfigurasi php.ini
+nano /etc/php/7.4/fpm/php.ini	
+
+* ubah bagian konfigurasi berikut
+max_input_vars = 6000
+memory_limit = 256M
+upload_max_filesize = 64M
+post_max_size = 64M
+max_execution_time = 360
+max_input_time = 360
+cgi.fix_pathinfo = 0
+date.timezone = Asia/Makassar
+
+* restart php-fpm
+systemctl restart php7.4-fpm; systemctl status php7.4-fpm	
+5. Download Moodle
+wget https://download.moodle.org/download.php/direct/stable311/moodle-latest-311.tgz; tar xzvf moodle-latest-311.tgz
+
+* Membuat folder untuk Moodle
+mkdir -p /var/www/moodle/data;
+mv moodle /var/www/moodle/web;
+chown -R www-data:www-data /var/www/moodle;
+chmod -R 755 /var/www/moodle
+
+*konfigurasi Nginx block untuk SUBDOMAIN
+cd /etc/nginx/conf.d; nano SUBDOMAIN.conf
+
+*masukkan konfigurasi dibawah ini
+server {
+    listen 80;
+    server_name SUBDOMAIN;
+    root /var/www/moodle/web;
+    index index.php index.html index.htm;
+ 
+    location / {
+    	try_files $uri $uri/ /index.php?$query_string;       
+    }
+ 
+    location /dataroot/ {
+    	internal;
+    	alias /var/www/moodle/data;
+    }
+ 
+    location ~ [^/]\.php(/|$) {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php7.4-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+ 
+}
+
+* restart nginx
+nginx -t; systemctl restart nginx; systemctl status nginx
+6. Install SSL Let's Encrypt menggunakan certbot
+apt install snapd
+sudo snap install core; sudo snap refresh core
+sudo snap install --classic certbot
+sudo ln -s /snap/bin/certbot /usr/bin/certbot
+sudo certbot --nginx -d SUBDOMAIN
+sudo certbot renew --dry-run
